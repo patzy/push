@@ -2,31 +2,9 @@
 (in-package #:push)
 
 (defparameter *screens* (glaw:make-screen-stack))
-(defparameter *debug-view* (glaw:create-2d-view 0 0 1024 768))
+(defparameter *debug-view* (glaw:create-2d-view 0 -300 1024 600))
 
 ;;; Game entities
-(defstruct field
-  shape
-  bbox
-  force)
-
-(defun field-inside-p (field x y)
-  (glaw:bbox-inside-p (field-bbox field) x y))
-
-(defun create-field (left bottom right top force)
-  (let ((field (make-field :shape (glaw:create-rectangle-shape left bottom right top)
-                               :bbox (glaw:make-bbox)
-                               :force force)))
-    (glaw:bbox-update/shape (field-bbox field) (field-shape field))
-    field))
-
-(defun render-field (field)
-    (glaw:select-texture nil)
-    (glaw:set-color/rgb 0 0 0.6 0.6)
-    (glaw:render-shape (field-shape field))
-    (glaw:set-color/rgb 1.0 1.0 1.0)
-    (glaw:render-bbox (field-bbox field)))
-
 (defstruct wall
   texture
   shape
@@ -44,24 +22,29 @@
 (defun render-wall (wall)
   (glaw:select-texture (wall-texture wall))
   (glaw:render-shape (wall-shape wall))
-  ;; (glaw:select-texture nil)
-  ;; (glaw:set-color/rgb 1.0 1.0 1.0 1.0)
-  ;; (glaw:render-bbox (wall-bbox wall))
+  (glaw:select-texture nil)
+  (glaw:set-color/rgb 1.0 1.0 1.0 1.0)
+  (glaw:render-bbox (wall-bbox wall))
   )
 
 (defstruct obstacle
+  pos width
   texture
   shape
   bbox)
 
+(defun obstacle-end (obs)
+  (+ (obstacle-pos obs) (obstacle-width obs)))
+
 (defun create-obstacle (x width)
-  (let ((wall (make-obstacle :texture (glaw:use-resource "containment-tex")
+  (let ((obs (make-obstacle :texture (glaw:use-resource "containment-tex")
                              :bbox (glaw:make-bbox)
-                             :shape (glaw:create-rectangle-shape x 500 (+ x width) 200
+                             :shape (glaw:create-rectangle-shape x -200 (+ x width) 200
                                                                  :filled t)
+                             :pos x :width width
                              )))
-    (glaw:bbox-update/shape (wall-bbox wall) (wall-shape wall))
-    wall))
+    (glaw:bbox-update/shape (obstacle-bbox obs) (obstacle-shape obs))
+    obs))
 
 (defun render-obstacle (obstacle)
   (glaw:select-texture (obstacle-texture obstacle))
@@ -118,53 +101,102 @@
       (glaw:render-sprite (particle-sprite part))
       (glaw:translate-shape (glaw::sprite-shape (particle-sprite part)) (- dx) (- dy)))))
 
-(defun update-particle (part fields dt)
-  (unless (particle-holded part)
-    (let ((acc-x 0.0)
-          (acc-y 0.0))
-      (dolist (f fields)
-        (when (field-inside-p f (particle-x part) (particle-y part))
-          (let* ((force (field-force f)))
-            (incf acc-x (glaw:vector-2d-x force))
-            (incf acc-y (glaw:vector-2d-y force))))
-        (incf (particle-vx part) (* dt acc-x))
-        (incf (particle-vy part) (* dt acc-y)))))
-    ;; ;; update position
-    ;; (let ((dx (* (particle-vx part) dt))
-    ;;       (dy (* (particle-vy part) dt)))
-    ;;   (incf (particle-x part) dx)
-    ;;   (incf (particle-y part) dy))
-  (when (particle-teleport part)
-    (particle-update-teleport part dt)))
+(let ((acc 200.0)
+      (max-speed 5000.0))
+  (defun update-particle (part dt)
+    (unless (particle-holded part)
+      (incf (particle-vx part) (* dt acc))
+      (when (> (particle-vx part) max-speed)
+        (setf (particle-vx part) max-speed)))
+    (when (particle-teleport part)
+      (particle-update-teleport part dt))))
+
+(defun particle-collide-p (part obs)
+  (glaw:bbox-intersect-p (particle-bbox part) (obstacle-bbox obs)))
+
+;;; Game Over screen
+(defstruct game-over-screen
+  font)
+
+(glaw:key-handler (it game-over-screen) (:escape :press)
+     (glaw:pop-screen *screens*))
+
+(glaw:key-handler (it game-over-screen) (:space :press)
+     (glaw:replace-screen *screens* (make-game-screen)))
+
+(defmethod glaw:init-screen ((it game-over-screen) &key)
+  (setf (game-over-screen-font it) (glaw:use-resource "font"))
+  (glaw:push-input-handlers)
+  (glaw:add-input-handler it))
+
+(defmethod glaw:shutdown-screen ((it game-over-screen))
+  (glaw:drop-resource "font")
+  (glaw:remove-input-handler it)
+  (glaw:pop-input-handlers))
+
+(defmethod glaw:render-screen ((it game-over-screen))
+  (glaw:select-texture nil)
+  (glaw:set-color/rgb 1 0 0 1)
+  (glaw:render-wrapped-string 0 384 1024
+                              (game-over-screen-font it)
+                              "You lost. Press ESC key to continue or SPACE to retry."
+                              :justify :center))
+
+(defmethod glaw:update-screen ((it game-over-screen) dt)
+  (declare (ignore it dt)))
 
 ;;; Play screen
 (defstruct game-screen
+  (score 0)
   player
-  (fields '())
   (obstacles '())
   (walls '())
-  (view (glaw:create-2d-view 0 0 1024 768))
+  (view (glaw:create-2d-view 0 -300 1024 600))
   font)
 
 (let ((acc 0.0))
   (defun game-screen-scroll (scr dx)
     (incf acc dx)
     (let ((delta (floor acc)))
-      ;;(incf (particle-x (game-screen-player scr)) (- delta))
-      (dolist (f (game-screen-fields scr))
-        (glaw:translate-shape (field-shape f) (- delta) 0)
-        (glaw:bbox-translate (field-bbox f) (- delta) 0))
+      (incf (game-screen-score scr) delta)
       (dolist (o (game-screen-obstacles scr))
         (glaw:translate-shape (obstacle-shape o) (- delta) 0)
-        (glaw:bbox-translate (obstacle-bbox o) (- delta) 0))
+        (glaw:bbox-translate (obstacle-bbox o) (- delta) 0)
+        (decf (obstacle-pos o) delta))
       (dolist (w (game-screen-walls scr))
         (glaw:translate-shape (wall-shape w) (- delta) 0)
         (glaw:bbox-translate (wall-bbox w) (- delta) 0)
         (when (<= (glaw:bbox-x-max (wall-bbox w)) 0)
-        (let ((width 1248))
+        (let ((width 2288)) ;; 11*208
           (glaw:translate-shape (wall-shape w) width 0)
           (glaw:bbox-translate (wall-bbox w) width 0))))
       (decf acc delta))))
+
+(defun game-screen-update-view (scr dt)
+  (let* ((speed (particle-vx (game-screen-player scr)))
+         (dist-to-min (- 1.0 (glaw:2d-view-zoom (game-screen-view scr))))
+         (dist-to-max (- (min (/ speed 500.0) 1.5) (glaw:2d-view-zoom (game-screen-view scr)))))
+    (if (< speed 500.0)
+        (glaw:zoom-2d-view (game-screen-view scr) (* dist-to-min dt) :lock-left t)
+        (glaw:zoom-2d-view (game-screen-view scr) (* dist-to-max dt) :lock-left t))))
+
+(let ((last-obstacle nil)) ;; last obstacle generated
+  (defun game-screen-update-obstacles (scr dt)
+    (declare (ignore dt))
+    (setf (game-screen-obstacles scr)
+          (remove-if (lambda (obs)
+                       (< (obstacle-end obs) 0.0)) (game-screen-obstacles scr)))
+    (unless (and last-obstacle (> (+ (obstacle-pos last-obstacle) (obstacle-width last-obstacle))
+                                  2000.0))
+      (let* ((difficulty (min (/ (game-screen-score scr) 10000.0) 1.0))
+             (end (if last-obstacle
+                      (+ (obstacle-pos last-obstacle) (obstacle-width last-obstacle))
+                      2100))
+             (next-width (+ 10.0 (* difficulty
+                                    (random (1+ (floor (particle-vx (game-screen-player scr))))))))
+             (next-pos (+ end (glaw:random-between 500.0 1000.0))))
+        (setf last-obstacle (create-obstacle next-pos next-width))
+        (push last-obstacle (game-screen-obstacles scr))))))
 
 (glaw:key-handler (it game-screen) (:space :press)
   (setf (particle-holded (game-screen-player it)) nil))
@@ -190,31 +222,49 @@
 (glaw:key-handler (it game-screen) (:o :release)
   (decf (particle-vx (game-screen-player it)) 10.0))
 
+(glaw:key-handler (it game-screen) (:v :press)
+  (glaw:zoom-2d-view (game-screen-view it) 0.1 :lock-left t))
+
+(glaw:key-handler (it game-screen) (:b :press)
+  (glaw:zoom-2d-view (game-screen-view it) -0.1 :lock-left t))
+
+(defparameter *current-view* *debug-view*)
+
+(glaw:key-handler (it game-screen) (:d :press)
+  (format t "Toggling view~%")
+  (if (eq *current-view* *debug-view*)
+      (setf *current-view* (game-screen-view it))
+      (setf *current-view* *debug-view*)))
+
 (defmethod glaw:init-screen ((it game-screen) &key)
-  (setf (game-screen-player it) (create-particle 230 365)
+  (setf (game-screen-player it) (create-particle 100 0)
         (game-screen-font it) (glaw:use-resource "font"))
-  (loop for i below (1+ (/ (glaw:2d-view-width (game-screen-view it)) 208))
+  (loop for i below 11;;(+ 10 (/ (glaw:2d-view-width (game-screen-view it)) 208))
        with x = 0 do
-       (push (create-wall x 200) (game-screen-walls it))
+       (push (create-wall x -325) (game-screen-walls it))
        (incf x 208))
-  (loop for i below (1+ (/ (glaw:2d-view-width (game-screen-view it)) 208))
+  (loop for i below 11;;(+ 10 (/ (glaw:2d-view-width (game-screen-view it)) 208))
        with x = 0 do
-       (push (create-wall x 500) (game-screen-walls it))
+       (push (create-wall x 275) (game-screen-walls it))
        (incf x 208))
-  (push (create-obstacle 2500 100) (game-screen-obstacles it))
-  ;; (push (create-field 100 100 500 500 (glaw:make-vector-2d :x 1000.0 :y 0.0))
-  ;;       (game-screen-fields it))
   (glaw:add-input-handler it))
 
 (defmethod glaw:shutdown-screen ((it game-screen))
   (glaw:remove-input-handler it))
 
 (defmethod glaw:update-screen ((it game-screen) dt)
-  (update-particle (game-screen-player it) (game-screen-fields it) dt)
-  (game-screen-scroll it (* (particle-vx (game-screen-player it)) dt)))
+  (game-screen-update-view it dt)
+  (game-screen-update-obstacles it dt)
+  (update-particle (game-screen-player it) dt)
+  (game-screen-scroll it (* (particle-vx (game-screen-player it)) dt))
+  ;; (dolist (o (game-screen-obstacles it))
+  ;;   (when (particle-collide-p (game-screen-player it) o)
+  ;;     (glaw:replace-screen *screens* (make-game-over-screen))))
+  )
 
 (defmethod glaw:render-screen ((it game-screen))
-  (glaw:set-view-2d *debug-view*)
+  (glaw:set-view-2d *current-view*)
+  ;;(glaw:set-view-2d (game-screen-view it))
   (glaw:select-texture nil)
   (glaw:set-color/rgb 1 1 1 1)
   (gl:begin :line-strip)
@@ -224,19 +274,18 @@
   (gl:vertex (glaw:2d-view-left (game-screen-view it)) (glaw:2d-view-bottom (game-screen-view it)))
   (gl:vertex (glaw:2d-view-left (game-screen-view it)) (glaw:2d-view-top (game-screen-view it)))
   (gl:end)
-  (dolist (f (game-screen-fields it))
-    (render-field f))
-  (glaw:set-color/rgb 0.3 0.5 0.8 1.0)
-  (render-particle (game-screen-player it))
   (glaw:set-color/rgb 1.0 1.0 1.0 1.0)
   (dolist (o (game-screen-obstacles it))
     ;;(when (glaw:bbox-visible-p (wall-bbox w) (game-screen-view it))
       (render-obstacle o))
   ;;)
   (dolist (w (game-screen-walls it))
-    (when (glaw:bbox-visible-p (wall-bbox w) (game-screen-view it))
-      (render-wall w)))
+    ;(when (glaw:bbox-visible-p (wall-bbox w) (game-screen-view it))
+      (render-wall w));)
+  (glaw:set-color/rgb 0.3 0.5 0.8 1.0)
+  (render-particle (game-screen-player it))
   (glaw:set-color/rgb 1.0 1.0 1.0 1.0)
+  (glaw:format-at 100 140 (game-screen-font it) "SCORE: ~A" (game-screen-score it))
   (glaw:format-at 100 120 (game-screen-font it) "Speed: ~A" (particle-vx (game-screen-player it)))
   (glaw:format-at 100 100 (game-screen-font it) "FPS: ~A" (glaw:current-fps)))
 
@@ -253,7 +302,7 @@
 
 
 (defun shutdown ()
-  (glaw:pop-screen *screens*)
+  (glaw:empty-screen-stack *screens*)
   (glaw:dispose-asset "font")
   (glaw:dispose-asset "particle-sprite")
   (glaw:dispose-asset "magnet-sprite")
@@ -308,7 +357,7 @@
     (glaw:reshape 800 600)
     (init)
     (let ((last-update-time (get-internal-real-time)))
-      (loop while (glop:dispatch-events win :blocking nil) do
+      (loop while (and *screens* (glop:dispatch-events win :blocking nil)) do
            (let* ((elapsed-time (- (get-internal-real-time) last-update-time))
                   (dt (float (/ elapsed-time internal-time-units-per-second))))
              (setf last-update-time (get-internal-real-time))
