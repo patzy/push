@@ -52,8 +52,7 @@
 
 (defun particle-end-teleport (part)
   (let ((dt (particle-teleport part)))
-    ;; remove some particle energy
-    (decf (particle-vx part) (* dt (particle-vx part))))
+    (decf (particle-vx part) (* 0.3 dt (particle-vx part))))
   (setf (particle-teleport part) nil))
 
 (defun render-particle (part)
@@ -102,9 +101,13 @@
 (defun create-obstacle (x width keys)
   (let ((obs (apply #'make-obstacle :bbox (glaw:make-bbox)
                                     :shape (glaw:create-rectangle-shape x -300 (+ x width) 300
-                                                                        :filled t)
+                                                                        :filled t
+                                                                        :tex-width 256
+                                                                        :tex-height 256)
                                     :pos x :width width
                                     :allow-other-keys t keys)))
+    (setf (glaw::texture-wrap-s (obstacle-texture obs)) :repeat
+          (glaw::texture-wrap-t (obstacle-texture obs)) :repeat)
     (glaw:bbox-update/shape (obstacle-bbox obs) (obstacle-shape obs))
     obs))
 
@@ -115,6 +118,7 @@
 ;;; Game Over screen
 (defstruct game-over-screen
   (view (glaw:create-2d-view 0 0 1024 768))
+  (bgnd (glaw:create-rectangle-shape 0 0 1024 768))
   font)
 
 (glaw:key-handler (it game-over-screen) (:escape :press)
@@ -137,10 +141,12 @@
 (defmethod glaw:render-screen ((it game-over-screen))
   (glaw:set-view-2d (game-over-screen-view it))
   (glaw:select-texture nil)
+  (glaw:set-color/rgb 0.6 0.6 0.6 0.6)
+  (glaw:render-shape (game-over-screen-bgnd it))
   (glaw:set-color/rgb 1 0 0 1)
   (glaw:render-wrapped-string 0 384 1024
                               (game-over-screen-font it)
-                              "You lost. Press ESC key to continue or SPACE to retry."
+                              "You lost. Press ESC key to quit or SPACE to retry."
                               :justify :center))
 
 (defmethod glaw:update-screen ((it game-over-screen) dt)
@@ -148,7 +154,7 @@
 
 ;;; Countdown Screen
 (defstruct countdown-screen
-  (view (glaw:create-2d-view 0 0 1024 768))
+  (view (glaw:create-2d-view 0 0 320 240))
   (remaining 5.0)
   font)
 
@@ -165,12 +171,15 @@
   (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (countdown-screen-view it)) 0.6)
                               (glaw:2d-view-width (countdown-screen-view it))
                               (countdown-screen-font it)
-                              (format nil "~A" (countdown-screen-remaining it))
+                              (if (> (countdown-screen-remaining it) 1)
+                                  (format nil "~D" (floor (countdown-screen-remaining it)))
+                                  (format nil "~,1F" (countdown-screen-remaining it)))
                               :justify :center))
 
 (defmethod glaw:update-screen ((it countdown-screen) dt)
   (decf (countdown-screen-remaining it) dt)
   (when (<= (countdown-screen-remaining it) 0.0) ;; game over
+    (setf (countdown-screen-remaining it) 0)
     (glaw:push-screen (make-game-over-screen) *screens*
                       :propagate-rendering t)))
 
@@ -181,15 +190,20 @@
   (dying nil)
   player
   (obstacles '())
+  last-obstacle
   (walls '())
   (view (glaw:create-2d-view 0 -300 1024 600))
-  font)
+  (ui-view (glaw:create-2d-view 0 0 1024 768))
+  (font (glaw:use-resource "font"))
+  (bass0 (glaw:use-resource "bassline0"))
+  (key-repeat (glaw:make-input-repeat :input :t
+                                      :output :key-repeat
+                                      :delay 0.2)))
 
 (let ((acc 0.0))
   (defun game-screen-scroll (scr dx)
     (incf acc dx)
     (let ((delta (floor acc)))
-      (incf (game-screen-score scr) delta)
       (dolist (o (game-screen-obstacles scr))
         (glaw:translate-shape (obstacle-shape o) (- delta) 0)
         (glaw:bbox-translate (obstacle-bbox o) (- delta) 0)
@@ -223,36 +237,40 @@
   (decf (particle-vx (game-screen-player game-scr))
         (* (particle-vx (game-screen-player game-scr)) amount)))
 
-(let ((last-obstacle nil)) ;; last obstacle generated
-  (defun game-screen-update-obstacles (scr dt)
-    (declare (ignore dt))
-    (setf (game-screen-obstacles scr)
-          (remove-if (lambda (obs)
-                       (< (obstacle-end obs) 0.0)) (game-screen-obstacles scr)))
-    (unless (and last-obstacle (> (+ (obstacle-pos last-obstacle) (obstacle-width last-obstacle))
-                                  2000.0))
-      (let ((obstacles (list (list :containment 0.1
-                                   :texture (glaw:use-resource "containment-tex")
-                                   :on-collision #'die-on-collide
-                                   :collision-args (list scr))
-                             (list :field 0.5
-                                   :texture (glaw:use-resource "field-tex")
-                                   :on-collision #'slow-on-collide
-                                   :collision-args (list scr 0.1))
-                             (list :warp 0.4
-                                   :texture (glaw:use-resource "warp-tex")
-                                   :on-collision #'slow-on-collide
-                                   :collision-args (list scr -0.2)))))
-        (let* ((difficulty (game-screen-difficulty scr))
-               (end (if last-obstacle
-                        (+ (obstacle-pos last-obstacle) (obstacle-width last-obstacle))
-                        (glaw:2d-view-width (game-screen-view scr))))
-               (next-obs (cddr (glaw:random-nth obstacles)))
-               (max-width (* 0.2 (glaw:2d-view-width (game-screen-view scr))))
-               (next-width (+ 10.0 (* difficulty max-width)))
-               (next-pos (+ end (+ 500.0 (random (1+ (floor (* 10000.0 (- 1.0 difficulty)))))))))
-        (setf last-obstacle (create-obstacle next-pos next-width next-obs))
-        (push last-obstacle (game-screen-obstacles scr)))))))
+(defun warp-on-collide (game-scr amount)
+  (move-particle (game-screen-player game-scr)
+                 (* (particle-vx (game-screen-player game-scr)) amount)))
+
+(defun game-screen-update-obstacles (scr dt)
+  (declare (ignore dt))
+  (setf (game-screen-obstacles scr)
+        (remove-if (lambda (obs)
+                     (< (obstacle-end obs) 0.0)) (game-screen-obstacles scr)))
+  (unless (and (game-screen-last-obstacle scr)
+               (> (obstacle-end (game-screen-last-obstacle scr)) 2000.0))
+    (let ((obstacles (list (list :containment 0.1
+                                 :texture (glaw:use-resource "containment-tex")
+                                 :on-collision #'die-on-collide
+                                 :collision-args (list scr))
+                           (list :field 0.5
+                                 :texture (glaw:use-resource "field-tex")
+                                 :on-collision #'slow-on-collide
+                                 :collision-args (list scr 0.1))
+                           (list :warp 0.4
+                                 :texture (glaw:use-resource "warp-tex")
+                                 :on-collision #'warp-on-collide
+                                 :collision-args (list scr 0.2)))))
+      (let* ((difficulty (game-screen-difficulty scr))
+             (end (if (game-screen-last-obstacle scr)
+                      (+ (obstacle-pos (game-screen-last-obstacle scr))
+                         (obstacle-width (game-screen-last-obstacle scr)))
+                      (glaw:2d-view-width (game-screen-view scr))))
+             (next-obs (cddr (glaw:random-nth obstacles)))
+             (max-width (* 0.2 (glaw:2d-view-width (game-screen-view scr))))
+             (next-width (+ 10.0 (* difficulty max-width)))
+             (next-pos (+ end (+ 500.0 (random (1+ (floor (* 10000.0 (- 1.0 difficulty)))))))))
+        (setf (game-screen-last-obstacle scr) (create-obstacle next-pos next-width next-obs))
+        (push (game-screen-last-obstacle scr) (game-screen-obstacles scr))))))
 
 (defun game-screen-check-death (scr dt)
   (let ((part (game-screen-player scr)))
@@ -264,6 +282,13 @@
         (when (game-screen-dying scr)
           (glaw:pop-screen *screens*)
           (setf (game-screen-dying scr) nil)))))
+
+(defun game-screen-update-score (scr dt)
+  (incf (game-screen-score scr) (* dt (particle-vx (game-screen-player scr))))
+  (setf (game-screen-score scr) (floor (game-screen-score scr))))
+
+(glaw:input-handler (it game-screen) :key-repeat
+  (incf (particle-vx (game-screen-player it)) 50.0))
 
 (glaw:key-handler (it game-screen) (:space :press)
   (setf (particle-holded (game-screen-player it)) nil))
@@ -287,9 +312,14 @@
        with x = 0 do
        (push (create-wall x 275) (game-screen-walls it))
        (incf x 208))
-  (glaw:add-input-handler it))
+  (glaw:add-input-handler it)
+  (glaw:add-input-handler (game-screen-key-repeat it))
+  (glaw:play-sound (game-screen-bass0 it) :loop t))
 
 (defmethod glaw:shutdown-screen ((it game-screen))
+  (glaw:drop-resources "font" "bassline0")
+  (glaw:stop-sound (game-screen-bass0 it))
+  (glaw:remove-input-handler (game-screen-key-repeat it))
   (glaw:remove-input-handler it))
 
 (defmethod glaw:update-screen ((it game-screen) dt)
@@ -299,6 +329,7 @@
     (game-screen-scroll it (* (particle-x-off (game-screen-player it)) dt))
     (move-particle (game-screen-player it) (- (* (particle-x-off (game-screen-player it)) dt))))
   (unless (particle-holded (game-screen-player it))
+    (game-screen-update-score it dt)
     (game-screen-scroll it (* (particle-vx (game-screen-player it)) dt))
     (update-particle (game-screen-player it) dt))
   (dolist (o (game-screen-obstacles it))
@@ -308,7 +339,6 @@
   (game-screen-check-death it dt))
 
 (defmethod glaw:render-screen ((it game-screen))
-  ;;(glaw:set-view-2d *current-view*)
   (glaw:set-view-2d (game-screen-view it))
   (glaw:select-texture nil)
   (glaw:set-color/rgb 1 1 1 1)
@@ -329,21 +359,24 @@
   (dolist (w (game-screen-walls it))
     ;(when (glaw:bbox-visible-p (wall-bbox w) (game-screen-view it))
       (render-wall w));)
+  (glaw:set-view-2d (game-screen-ui-view it))
   (glaw:set-color/rgb 1.0 1.0 1.0 1.0)
-  (glaw:format-at 100 160 (game-screen-font it) "Difficulty: ~A" (game-screen-difficulty it))
-  (glaw:format-at 100 140 (game-screen-font it) "SCORE: ~A" (game-screen-score it))
-  (glaw:format-at 100 120 (game-screen-font it) "Speed: ~A" (particle-vx (game-screen-player it)))
-  (glaw:format-at 100 100 (game-screen-font it) "FPS: ~A" (glaw:current-fps)))
+  (glaw:format-at 10 690 (game-screen-font it) "SCORE: ~A" (game-screen-score it))
+  (when (< (particle-vx (game-screen-player it)) 500.0)
+    (glaw:set-color/rgb 1.0 0.1 0.1 1.0))
+  (glaw:format-at 10 25 (game-screen-font it) "Speed: ~A" (particle-vx (game-screen-player it))))
 
 ;;; Main code
 (defun init ()
   (glaw:init-content-manager #P"./")
-  (glaw:load-asset "dejavu-sans.fnt" :fonttool-bitmap-font "font")
+  (glaw:init-sound)
+  (glaw:load-asset "elemental_end.fnt" :fonttool-bitmap-font "font")
   (glaw:load-asset "particle.png" :texture "particle-sprite")
   (glaw:load-asset "metal.png" :texture "metal-tex")
   (glaw:load-asset "containment.png" :texture "containment-tex")
   (glaw:load-asset "field.png" :texture "field-tex")
   (glaw:load-asset "warp.png" :texture "warp-tex")
+  (glaw:load-asset "rave_bass01.wav" :sound "bassline0")
   (gl:clear-color 0 0 0 0)
   (glaw:push-screen (make-game-screen) *screens*))
 
@@ -356,6 +389,8 @@
   (glaw:dispose-asset "containment-tex")
   (glaw:dispose-asset "field-tex")
   (glaw:dispose-asset "warp-tex")
+  (glaw:dispose-asset "bassline0")
+  (glaw:shutdown-sound)
   (glaw:shutdown-content-manager))
 
 (defun draw (window)
@@ -366,6 +401,7 @@
 
 (defun update (dt)
   (glaw:update-scheduler dt)
+  (glaw:update-sound)
   (glaw:update-screens *screens* dt))
 
 (defmethod glop:on-key (window pressed keycode keysym string)
