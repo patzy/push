@@ -1,0 +1,67 @@
+* The game
+
+The game is a simple on-button experiment. You play some sort of particle moving through a corridor.
+The particle is accelerated constantly and the goal is basically to travel as far as possibe while
+avoiding different types of obstacles.
+The game is (in theory) infinite as the obstacles positions and size are generated on the fly depending
+on the player speed.
+
+The game ends when you die either by colliding with a lethal obstacle or when your speed stays below
+500 for more than 3 seconds.
+
+Two actions are available through a single key.
+Pressing this key repeatedly and you'll add some more acceleration to the particle.
+Holding the key will prepare for teleportation, releasing it will effectively teleport the particle.
+
+* Tools and libraries
+
+I used [[http://github.com/patzy/glop][glop]] and [[http://github.com/patzy/glaw][glaw]] (and the glaw-imago extension for image loading).
+
+Development was done mostly with Clozure CL using SLIME.
+
+* What went wrong?
+
+** Time
+I started too late with a really vague idea of what I wanted to do (something with one-button).
+It took a week to find some 'acceptable' gameplay and start coding.
+Then I only had little time to actually hack on the game code.
+The deadline extension allowed me to release something more 'polished' though.
+
+** Assets
+As I already noticed with other games I'm bad at creating assets so the game is really ugly compared
+to what I had in mind.
+Music was also a problem since glaw only supports wav files for sound, having a long enough music
+would have taken too much space (both on disk and in memory). I had to rely on multiple small loops
+as a workaround but again I'm bad at creating this kind of things.
+
+** Incomplete libraries
+I used libraries that are under development and some features I needed were missing so I had to take
+some time to write them. Again this is time not spent on the game code.
+
+** No entity system
+Even if the game is really small (a little more than 500 lines of code) and only contains a few
+different objects, I felt the need for some flexible entity system while creating these objects.
+They appear to share most of their properties and next time I think something like
+[[http://bitbucket.org/elliottslaughter/escalator/wiki/Home][Escalator]] would probably make development easier.
+
+* What went right?
+
+** SLIME/ccl
+I tried to really use SLIME for the first time and it proved to be very usefull for prototyping.
+I was able to tune the game while it was running which is really nice.
+Except when I had to restart the inferior lisp (probably due to some bad usage from me) it allowed me
+to experiment easily different ideas.
+
+** Dynamic music/levels
+Since the game is supposed to be infinite I had the opportunity to play with obstacles and music
+generation.
+I made some simple dynamic level generation where the actual difficulty sort of adapt to the player
+speed. It's far from ideal but it works.
+For the music I used a few looping samples and changed their volumes according to the player speed.
+Again the result is not really good but I started to play with sound only a few days before the
+release.
+
+** Fixing libraries
+Imcomplete libraries made me lost a lot of time but on the other end, writing this game helped
+me to spot missing features or problems. I was actually writing libraries for something not just
+for the lib itself.
