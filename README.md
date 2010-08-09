@@ -14,6 +14,7 @@ Score also increase with your speed, i.e. the faster you go the more score you g
 distance.
 
 There are 3 types of obstacles with different effects:
+
 - warp: automatic teleportation (blue walls);
 - slow: reduce your speed (green walls);
 - containment: immediate death (red walls).
