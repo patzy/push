@@ -260,7 +260,7 @@
  slow (reduce your speed, green walls) and containment (immediate death, red walls)."
                               :justify :left)
   (glaw:set-color/rgb 0.5 0.6 0.4 1)
-  (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.2)
+  (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.15)
                               (glaw:2d-view-width (title-screen-view it))
                               (title-screen-title-font it)
                               "Press SPACE to start."
