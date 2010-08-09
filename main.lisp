@@ -183,6 +183,61 @@
     (glaw:push-screen (make-game-over-screen) *screens*
                       :propagate-rendering t)))
 
+;;; Title screen
+(defstruct title-screen
+  (view (glaw:create-2d-view 0 0 1024 768))
+  (title-font (glaw:use-resource "font"))
+  (text-font (glaw:use-resource "dejavu")))
+
+(glaw:key-handler (it title-screen) (:escape :press)
+     (glaw:empty-screen-stack *screens*))
+
+(glaw:key-handler (it title-screen) (:space :press)
+     (glaw:push-screen (make-game-screen) *screens*))
+
+(defmethod glaw:init-screen ((it title-screen) &key)
+  (glaw:push-input-handlers)
+  (glaw:add-input-handler it))
+
+(defmethod glaw:shutdown-screen ((it title-screen))
+  (glaw:drop-resources "font" "dejavu")
+  (glaw:remove-input-handler it)
+  (glaw:pop-input-handlers))
+
+(defmethod glaw:suspend-screen ((it title-screen))
+  (glaw:pop-input-handlers))
+
+(defmethod glaw:resume-screen ((it title-screen))
+  (glaw:push-input-handlers)
+  (glaw:add-input-handler it))
+
+(defmethod glaw:render-screen ((it title-screen))
+  (glaw:set-view-2d (title-screen-view it))
+  (glaw:select-texture nil)
+  (glaw:set-color/rgb 1 0 0 1)
+  (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.75)
+                              (glaw:2d-view-width (title-screen-view it))
+                              (title-screen-title-font it)
+                              "PUSH"
+                              :justify :right)
+  (glaw:set-color/rgb 0.7 0.7 0.7 1)
+  (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.5)
+                              (* 0.6 (glaw:2d-view-width (title-screen-view it)))
+                              (title-screen-text-font it)
+                              "You are some sort of particle moving through a corridor.
+ Your only ability is to teleport yourself ahead in time to avoid obstacles.
+ Press the T key to 'charge' teleportation and release it to jump.
+ You can also increase your particle's speed by pressing the same key repeatedly."
+                              :justify :left)
+  (glaw:set-color/rgb 0.5 0.6 0.4 1)
+  (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.2)
+                              (glaw:2d-view-width (title-screen-view it))
+                              (title-screen-title-font it)
+                              "Press SPACE to start."
+                              :justify :center))
+
+(defmethod glaw:update-screen ((it title-screen) dt))
+
 ;;; Play screen
 (defstruct game-screen
   (score 0)
@@ -312,6 +367,8 @@
        with x = 0 do
        (push (create-wall x 275) (game-screen-walls it))
        (incf x 208))
+  (glaw:input-processor-reset (game-screen-key-repeat it))
+  (glaw:push-input-handlers)
   (glaw:add-input-handler it)
   (glaw:add-input-handler (game-screen-key-repeat it))
   (glaw:play-sound (game-screen-bass0 it) :loop t))
@@ -320,7 +377,8 @@
   (glaw:drop-resources "font" "bassline0")
   (glaw:stop-sound (game-screen-bass0 it))
   (glaw:remove-input-handler (game-screen-key-repeat it))
-  (glaw:remove-input-handler it))
+  (glaw:remove-input-handler it)
+  (glaw:pop-input-handlers))
 
 (defmethod glaw:update-screen ((it game-screen) dt)
   (game-screen-update-view it dt)
@@ -371,6 +429,7 @@
   (glaw:init-content-manager #P"./")
   (glaw:init-sound)
   (glaw:load-asset "elemental_end.fnt" :fonttool-bitmap-font "font")
+  (glaw:load-asset "dejavu-sans.fnt" :fonttool-bitmap-font "dejavu")
   (glaw:load-asset "particle.png" :texture "particle-sprite")
   (glaw:load-asset "metal.png" :texture "metal-tex")
   (glaw:load-asset "containment.png" :texture "containment-tex")
@@ -378,7 +437,7 @@
   (glaw:load-asset "warp.png" :texture "warp-tex")
   (glaw:load-asset "rave_bass01.wav" :sound "bassline0")
   (gl:clear-color 0 0 0 0)
-  (glaw:push-screen (make-game-screen) *screens*))
+  (glaw:push-screen (make-title-screen) *screens*))
 
 
 (defun shutdown ()
