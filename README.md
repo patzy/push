@@ -29,6 +29,7 @@ You need some Common Lisp implementation (clisp, ccl or sbcl)
 with [asdf](http://common-lisp.net/project/asdf/).
 
 The game requires the following libs (and their respective dependencies):
+
 - [glaw](http://github.com/patzy/glaw) and glaw-imago
 - [glop](http://github.com/patzy/glop)
 
