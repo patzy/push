@@ -372,7 +372,7 @@
         (setf (game-screen-last-obstacle scr) (create-obstacle next-pos next-width next-obs))
         (push (game-screen-last-obstacle scr) (game-screen-obstacles scr))))))
 
-(defun game-screen-check-death (scr dt)
+(defun game-screen-check-death (scr)
   (let ((part (game-screen-player scr)))
     (if (< (particle-vx part) 500.0)
         (unless (game-screen-dying scr)
@@ -445,7 +445,7 @@
     (when (and (particle-collide-p (game-screen-player it) o)
                (obstacle-on-collision o))
       (apply (obstacle-on-collision o) (obstacle-collision-args o))))
-  (game-screen-check-death it dt))
+  (game-screen-check-death it))
 
 (defmethod glaw:render-screen ((it game-screen))
   (glaw:set-view-2d (game-screen-view it))
@@ -499,7 +499,6 @@
   (glaw:dispose-asset "metal-tex")
   (glaw:dispose-asset "containment-tex")
   (glaw:dispose-asset "title-loop")
-  (glaw:dispose-asset "title-drum")
   (glaw:dispose-asset "bassline0")
   (glaw:dispose-asset "bassline1")
   (glaw:dispose-asset "drums")
