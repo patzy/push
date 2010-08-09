@@ -89,6 +89,7 @@
 (defstruct obstacle
   pos width
   texture
+  color
   shape
   bbox
   on-collision
@@ -111,13 +112,17 @@
     obs))
 
 (defun render-obstacle (obstacle)
-  (glaw:select-texture (obstacle-texture obstacle))
+  (if (obstacle-color obstacle)
+      (progn (glaw:set-color (obstacle-color obstacle))
+             (glaw:select-texture (obstacle-texture obstacle) :env-mode :modulate))
+      (glaw:select-texture (obstacle-texture obstacle)))
   (glaw:render-shape (obstacle-shape obstacle)))
 
 ;;; Game Over screen
 (defstruct game-over-screen
   (view (glaw:create-2d-view 0 0 1024 768))
   (bgnd (glaw:create-rectangle-shape 0 0 1024 768))
+  score
   font)
 
 (glaw:key-handler (it game-over-screen) (:escape :press)
@@ -214,19 +219,30 @@
   (glaw:set-view-2d (title-screen-view it))
   (glaw:select-texture nil)
   (glaw:set-color/rgb 1 0 0 1)
-  (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.75)
+  (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.8)
                               (glaw:2d-view-width (title-screen-view it))
                               (title-screen-title-font it)
                               "PUSH"
                               :justify :right)
   (glaw:set-color/rgb 0.7 0.7 0.7 1)
+  (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.7)
+                              (* 0.6 (glaw:2d-view-width (title-screen-view it)))
+                              (title-screen-text-font it)
+                              "You are some sort of particle accelerating through a corridor.
+ Your only ability is to teleport yourself ahead in time to avoid obstacles, the goal
+ is to go as far as possible to do the best score. The score is related to the effective
+ distance travelled (i.e. distance without teleportation)."
+                              :justify :left)
+  (glaw:set-color/rgb 0.7 0.7 0.7 1)
   (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.5)
                               (* 0.6 (glaw:2d-view-width (title-screen-view it)))
                               (title-screen-text-font it)
-                              "You are some sort of particle moving through a corridor.
- Your only ability is to teleport yourself ahead in time to avoid obstacles.
- Press the T key to 'charge' teleportation and release it to jump.
- You can also increase your particle's speed by pressing the same key repeatedly."
+                              "Press the T key to 'charge' teleportation and release it to jump.
+ The green shadow shows where your particle will be teleported.
+ You can also increase your particle's speed by pressing the same key repeatedly.
+ If your speed stays below 500 for more than 3 seconds you're dead.
+ There are 3 types of obstacles: warp (automatic teleportation, blue walls),
+ slow (reduce your speed, green walls) and containment (immediate death, red walls)."
                               :justify :left)
   (glaw:set-color/rgb 0.5 0.6 0.4 1)
   (glaw:render-wrapped-string 0 (* (glaw:2d-view-height (title-screen-view it)) 0.2)
@@ -235,7 +251,8 @@
                               "Press SPACE to start."
                               :justify :center))
 
-(defmethod glaw:update-screen ((it title-screen) dt))
+(defmethod glaw:update-screen ((it title-screen) dt)
+  (declare (ignore it dt)))
 
 ;;; Play screen
 (defstruct game-screen
@@ -284,7 +301,8 @@
      (min (/ (game-screen-score scr) 1.0E5) 1.0)))
 
 (defun die-on-collide (game-scr)
-  (glaw:push-screen (make-game-over-screen) *screens*
+  (glaw:push-screen (make-game-over-screen :score (game-screen-score game-scr))
+                    *screens*
                     :propagate-rendering t))
 
 (defun slow-on-collide (game-scr amount)
@@ -302,16 +320,16 @@
                      (< (obstacle-end obs) 0.0)) (game-screen-obstacles scr)))
   (unless (and (game-screen-last-obstacle scr)
                (> (obstacle-end (game-screen-last-obstacle scr)) 2000.0))
-    (let ((obstacles (list (list :containment 0.1
-                                 :texture (glaw:use-resource "containment-tex")
+    (let ((obstacles (list (list :texture (glaw:use-resource "containment-tex")
+                                 :color (glaw:create-color 1.0 0.0 0.0 1.0)
                                  :on-collision #'die-on-collide
                                  :collision-args (list scr))
-                           (list :field 0.5
-                                 :texture (glaw:use-resource "field-tex")
+                           (list :texture (glaw:use-resource "containment-tex")
+                                 :color (glaw:create-color 0.0 1.0 0.0 1.0)
                                  :on-collision #'slow-on-collide
                                  :collision-args (list scr 0.1))
-                           (list :warp 0.4
-                                 :texture (glaw:use-resource "warp-tex")
+                           (list :texture (glaw:use-resource "containment-tex")
+                                 :color (glaw:create-color 0.0 0.0 1.0 1.0)
                                  :on-collision #'warp-on-collide
                                  :collision-args (list scr 0.2)))))
       (let* ((difficulty (game-screen-difficulty scr))
@@ -319,7 +337,7 @@
                       (+ (obstacle-pos (game-screen-last-obstacle scr))
                          (obstacle-width (game-screen-last-obstacle scr)))
                       (glaw:2d-view-width (game-screen-view scr))))
-             (next-obs (cddr (glaw:random-nth obstacles)))
+             (next-obs (glaw:random-nth obstacles))
              (max-width (* 0.2 (glaw:2d-view-width (game-screen-view scr))))
              (next-width (+ 10.0 (* difficulty max-width)))
              (next-pos (+ end (+ 500.0 (random (1+ (floor (* 10000.0 (- 1.0 difficulty)))))))))
