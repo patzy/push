@@ -35,5 +35,5 @@ When you have all this just do:
     (asdf:operate 'asdf:load-op :push)
     (push:run)
     
-Linux and win32 clisp binaries are available [here](http://appart.kicks-ass.net/patzy/files/ilge2010/).
+Linux64 and Win32 clisp binaries are available [here](http://appart.kicks-ass.net/patzy/files/ilge2010/). Note that the binaries may not be the latest version available so you are encouraged to use the sources instead.
 
