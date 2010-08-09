@@ -25,7 +25,8 @@
   (glaw:render-shape (wall-shape wall)))
 
 (defstruct particle
-  (teleport nil)
+  (teleport-time nil)
+  (teleport-acc 0.0)
   x y
   x-off y-off
   sprite
@@ -41,18 +42,27 @@
     (glaw:bbox-update/shape (particle-bbox part) (glaw::sprite-shape (particle-sprite part)))
     part))
 
+(defun particle-teleport-p (part)
+  (>= (particle-teleport-acc part) 0.1))
+
 (defun particle-start-teleport (part)
-  (setf (particle-teleport part) 0.0))
+  (setf (particle-teleport-acc part) 0.0
+        (particle-teleport-time part) 0.0))
 
 (defun particle-update-teleport (part dt)
-  (incf (particle-teleport part) dt)
-  (when (> (particle-teleport part) 1.0)
-    (setf (particle-teleport part) 1.0)))
+  (incf (particle-teleport-acc part) dt)
+  (when (particle-teleport-p part)
+    (incf (particle-teleport-time part) dt)
+    (when (> (particle-teleport-time part) 1.0)
+      (setf (particle-teleport-time part) 1.0))))
 
 (defun particle-end-teleport (part)
-  (let ((dt (particle-teleport part)))
-    (decf (particle-vx part) (* 0.3 dt (particle-vx part))))
-  (setf (particle-teleport part) nil))
+  (when (particle-teleport-p part)
+    (let ((dt (particle-teleport-time part)))
+      (decf (particle-vx part) (* 0.3 dt (particle-vx part)))
+      (move-particle part (* (particle-vx part) dt))))
+  (setf (particle-teleport-time part) nil
+        (particle-teleport-acc part) 0.0))
 
 (defun render-particle (part)
   (let ((jitter (/ (particle-vx part) 300)))
@@ -62,8 +72,8 @@
                         (glaw:random-between (- jitter) jitter)
                         0))
       (glaw:render-sprite (particle-sprite part))))
-  (when (particle-teleport part)
-    (let ((dx (* (particle-teleport part) (particle-vx part))))
+  (when (particle-teleport-p part)
+    (let ((dx (* (particle-teleport-time part) (particle-vx part))))
       (glaw:translate-shape (glaw::sprite-shape (particle-sprite part)) dx 0)
       (glaw:set-color/rgb 0.0 1.0 0.0 0.6)
       (glaw:render-sprite (particle-sprite part))
@@ -75,7 +85,7 @@
     (incf (particle-vx part) (* dt acc))
     (when (> (particle-vx part) max-speed)
       (setf (particle-vx part) max-speed))
-    (when (particle-teleport part)
+    (when (particle-teleport-time part)
       (particle-update-teleport part dt))))
 
 (defun move-particle (part delta)
@@ -191,7 +201,8 @@
 (defstruct title-screen
   (view (glaw:create-2d-view 0 0 1024 768))
   (title-font (glaw:use-resource "font"))
-  (text-font (glaw:use-resource "dejavu")))
+  (text-font (glaw:use-resource "dejavu"))
+  (sound (glaw:use-resource "title-loop")))
 
 (glaw:key-handler (it title-screen) (:escape :press)
      (glaw:empty-screen-stack *screens*))
@@ -201,17 +212,21 @@
 
 (defmethod glaw:init-screen ((it title-screen) &key)
   (glaw:push-input-handlers)
-  (glaw:add-input-handler it))
+  (glaw:add-input-handler it)
+  (glaw:play-sound (title-screen-sound it) :loop t))
 
 (defmethod glaw:shutdown-screen ((it title-screen))
-  (glaw:drop-resources "font" "dejavu")
   (glaw:remove-input-handler it)
-  (glaw:pop-input-handlers))
+  (glaw:pop-input-handlers)
+  (glaw:stop-sound (title-screen-sound it))
+  (glaw:drop-resources "font" "dejavu" "title-loop"))
 
 (defmethod glaw:suspend-screen ((it title-screen))
+  (glaw:stop-sound (title-screen-sound it))
   (glaw:pop-input-handlers))
 
 (defmethod glaw:resume-screen ((it title-screen))
+  (glaw:play-sound (title-screen-sound it) :loop t)
   (glaw:push-input-handlers)
   (glaw:add-input-handler it))
 
@@ -266,7 +281,10 @@
   (view (glaw:create-2d-view 0 -300 1024 600))
   (ui-view (glaw:create-2d-view 0 0 1024 768))
   (font (glaw:use-resource "font"))
-  (bass0 (glaw:use-resource "bassline0"))
+  bass0   ;; played sounds
+  bass1
+  drum
+  (teleport-sound (glaw:use-resource "teleport"))
   (key-repeat (glaw:make-input-repeat :input :t
                                       :output :key-repeat
                                       :delay 0.2)))
@@ -296,9 +314,19 @@
         (glaw:zoom-2d-view (game-screen-view scr) (* dist-to-min dt) :lock-left t)
         (glaw:zoom-2d-view (game-screen-view scr) (* dist-to-max dt) :lock-left t))))
 
+(defun game-screen-update-music (scr dt)
+  (let* ((bass0-target (* (- 1.0 (game-screen-difficulty scr)) 0.7))
+         (bass1-target (game-screen-difficulty scr))
+         (drum-target 1.0)
+         (bass0-dist (- bass0-target (glaw:channel-volume (game-screen-bass0 scr))))
+         (bass1-dist (- bass1-target (glaw:channel-volume (game-screen-bass1 scr))))
+         (drum-dist (- drum-target (glaw:channel-volume (game-screen-drum scr)))))
+    (incf (glaw:channel-volume (game-screen-bass0 scr)) (* bass0-dist dt))
+    (incf (glaw:channel-volume (game-screen-bass1 scr)) (* bass1-dist dt))
+    (incf (glaw:channel-volume (game-screen-drum scr)) (* drum-dist dt))))
+
 (defun game-screen-difficulty (scr)
-  (+ (/ (particle-vx (game-screen-player scr)) 5000.0)
-     (min (/ (game-screen-score scr) 1.0E5) 1.0)))
+  (+ (/ (particle-vx (game-screen-player scr)) 5000.0)))
 
 (defun die-on-collide (game-scr)
   (glaw:push-screen (make-game-over-screen :score (game-screen-score game-scr))
@@ -366,8 +394,7 @@
   (particle-start-teleport (game-screen-player it)))
 
 (glaw:key-handler (it game-screen) (:t :release)
-  (move-particle (game-screen-player it)
-             (* (particle-vx (game-screen-player it)) (particle-teleport (game-screen-player it))))
+  (glaw:play-sound (game-screen-teleport-sound it) :volume 0.4)
   (particle-end-teleport (game-screen-player it)))
 
 (defmethod glaw:init-screen ((it game-screen) &key)
@@ -385,17 +412,28 @@
   (glaw:push-input-handlers)
   (glaw:add-input-handler it)
   (glaw:add-input-handler (game-screen-key-repeat it))
-  (glaw:play-sound (game-screen-bass0 it) :loop t))
+  (setf (game-screen-bass0 it) (glaw:play-sound (glaw:use-resource "bassline0")
+                                                :loop t
+                                                :volume 0.0)
+        (game-screen-bass1 it) (glaw:play-sound (glaw:use-resource "bassline1")
+                                                :loop t
+                                                :volume 0.0)
+        (game-screen-drum it) (glaw:play-sound (glaw:use-resource "drums")
+                                                :loop t
+                                                :volume 0.0)))
 
 (defmethod glaw:shutdown-screen ((it game-screen))
-  (glaw:drop-resources "font" "bassline0")
-  (glaw:stop-sound (game-screen-bass0 it))
+  (glaw:drop-resources "font" "bassline0" "bassline1" "drums" "teleport")
+  (glaw:stop-channel (game-screen-bass0 it))
+  (glaw:stop-channel (game-screen-bass1 it))
+  (glaw:stop-channel (game-screen-drum it))
   (glaw:remove-input-handler (game-screen-key-repeat it))
   (glaw:remove-input-handler it)
   (glaw:pop-input-handlers))
 
 (defmethod glaw:update-screen ((it game-screen) dt)
   (game-screen-update-view it dt)
+  (game-screen-update-music it dt)
   (game-screen-update-obstacles it dt)
   (unless (zerop (particle-x-off (game-screen-player it)))
     (game-screen-scroll it (* (particle-x-off (game-screen-player it)) dt))
@@ -445,9 +483,11 @@
   (glaw:load-asset "particle.png" :texture "particle-sprite")
   (glaw:load-asset "metal.png" :texture "metal-tex")
   (glaw:load-asset "containment.png" :texture "containment-tex")
-  (glaw:load-asset "field.png" :texture "field-tex")
-  (glaw:load-asset "warp.png" :texture "warp-tex")
+  (glaw:load-asset "tb303_01.wav" :sound "title-loop")
   (glaw:load-asset "rave_bass01.wav" :sound "bassline0")
+  (glaw:load-asset "rave_bass02.wav" :sound "bassline1")
+  (glaw:load-asset "rave_kick01.wav" :sound "drums")
+  (glaw:load-asset "teleport.wav" :sound "teleport")
   (gl:clear-color 0 0 0 0)
   (glaw:push-screen (make-title-screen) *screens*))
 
@@ -458,9 +498,12 @@
   (glaw:dispose-asset "particle-sprite")
   (glaw:dispose-asset "metal-tex")
   (glaw:dispose-asset "containment-tex")
-  (glaw:dispose-asset "field-tex")
-  (glaw:dispose-asset "warp-tex")
+  (glaw:dispose-asset "title-loop")
+  (glaw:dispose-asset "title-drum")
   (glaw:dispose-asset "bassline0")
+  (glaw:dispose-asset "bassline1")
+  (glaw:dispose-asset "drums")
+  (glaw:dispose-asset "teleport")
   (glaw:shutdown-sound)
   (glaw:shutdown-content-manager))
 
@@ -520,6 +563,3 @@
                (update dt)
                (draw win)))))))
 
-
-
-(run)
