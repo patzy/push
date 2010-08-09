@@ -34,4 +34,6 @@ The game requires the following libs (and their respective dependencies):
 When you have all this just do:
     (asdf:operate 'asdf:load-op :push)
     (push:run)
+    
+Linux and win32 clisp binaries are available [here](http://appart.kicks-ass.net/patzy/files/ilge2010/).
 
