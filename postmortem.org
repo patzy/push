@@ -62,6 +62,6 @@ Again the result is not really good but I started to play with sound only a few 
 release.
 
 ** Fixing libraries
-Imcomplete libraries made me lost a lot of time but on the other end, writing this game helped
+Imcomplete libraries made me lost a lot of time but writing this game helped
 me to spot missing features or problems. I was actually writing libraries for something not just
 for the lib itself.
