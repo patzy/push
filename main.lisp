@@ -25,7 +25,6 @@
   (glaw:render-shape (wall-shape wall)))
 
 (defstruct particle
-  (holded t)
   (teleport nil)
   x y
   x-off y-off
@@ -345,9 +344,6 @@
 (glaw:input-handler (it game-screen) :key-repeat
   (incf (particle-vx (game-screen-player it)) 50.0))
 
-(glaw:key-handler (it game-screen) (:space :press)
-  (setf (particle-holded (game-screen-player it)) nil))
-
 (glaw:key-handler (it game-screen) (:t :press)
   (particle-start-teleport (game-screen-player it)))
 
@@ -386,10 +382,9 @@
   (unless (zerop (particle-x-off (game-screen-player it)))
     (game-screen-scroll it (* (particle-x-off (game-screen-player it)) dt))
     (move-particle (game-screen-player it) (- (* (particle-x-off (game-screen-player it)) dt))))
-  (unless (particle-holded (game-screen-player it))
-    (game-screen-update-score it dt)
-    (game-screen-scroll it (* (particle-vx (game-screen-player it)) dt))
-    (update-particle (game-screen-player it) dt))
+  (game-screen-update-score it dt)
+  (game-screen-scroll it (* (particle-vx (game-screen-player it)) dt))
+  (update-particle (game-screen-player it) dt)
   (dolist (o (game-screen-obstacles it))
     (when (and (particle-collide-p (game-screen-player it) o)
                (obstacle-on-collision o))
@@ -411,12 +406,11 @@
   (render-particle (game-screen-player it))
   (glaw:set-color/rgb 1.0 1.0 1.0 1.0)
   (dolist (o (game-screen-obstacles it))
-    ;;(when (glaw:bbox-visible-p (wall-bbox w) (game-screen-view it))
-      (render-obstacle o))
-  ;;)
+    (when (glaw:bbox-visible-p (obstacle-bbox o) (game-screen-view it))
+      (render-obstacle o)))
   (dolist (w (game-screen-walls it))
-    ;(when (glaw:bbox-visible-p (wall-bbox w) (game-screen-view it))
-      (render-wall w));)
+   (when (glaw:bbox-visible-p (wall-bbox w) (game-screen-view it))
+      (render-wall w)))
   (glaw:set-view-2d (game-screen-ui-view it))
   (glaw:set-color/rgb 1.0 1.0 1.0 1.0)
   (glaw:format-at 10 690 (game-screen-font it) "SCORE: ~A" (game-screen-score it))
