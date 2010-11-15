@@ -476,10 +476,10 @@
 
 ;;; Main code
 (defun init ()
-  (glaw:init-content-manager #P"./")
+  (glaw:init-content-manager :root #P"./")
   (glaw:init-sound)
-  (glaw:load-asset "elemental_end.fnt" :fonttool-bitmap-font "font")
-  (glaw:load-asset "dejavu-sans.fnt" :fonttool-bitmap-font "dejavu")
+  (glaw:load-asset "elemental_end.fnt" :font "font")
+  (glaw:load-asset "dejavu-sans.fnt" :font "dejavu")
   (glaw:load-asset "particle.png" :texture "particle-sprite")
   (glaw:load-asset "metal.png" :texture "metal-tex")
   (glaw:load-asset "containment.png" :texture "containment-tex")
